@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>115 年度備品銷售競賽看板 (含匯入功能)</title>
+    <title>115 年度備品銷售競賽看板 (Big5 編碼修正版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -121,7 +121,7 @@
         <!-- 功能按鈕區 -->
         <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-8">
             <div class="flex flex-col md:flex-row justify-between items-center gap-4">
-                <!-- 左側：檔案匯入區 -->
+                <!-- 左側：檔案匯入區 (已修正 Big5) -->
                 <div class="flex items-center gap-3 w-full md:w-auto">
                     <label for="csvFileInput" class="upload-area cursor-pointer flex items-center gap-2 px-5 py-3 rounded-xl text-slate-600 font-bold text-sm bg-slate-50 w-full md:w-auto justify-center hover:shadow-md transition-all">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -130,6 +130,10 @@
                         <span>📂 匯入 115年度訂單.csv</span>
                         <input type="file" id="csvFileInput" accept=".csv" class="hidden" onchange="handleFileUpload(this)">
                     </label>
+                    <div class="flex flex-col">
+                        <span class="text-xs text-slate-500 font-bold">支援 Excel 轉出的 CSV</span>
+                        <span class="text-[10px] text-slate-400">自動使用 Big5 編碼</span>
+                    </div>
                 </div>
 
                 <!-- 右側：雲端操作 -->
@@ -378,37 +382,50 @@
             }
         };
 
-        // --- CSV 處理核心邏輯 ---
+        // --- CSV 處理核心邏輯 (Big5 修正版) ---
         function handleFileUpload(input) {
             const file = input.files[0];
             if (!file) return;
+
             const reader = new FileReader();
+            
+            // 重要：讀取完成後執行解析
             reader.onload = function(e) {
-                processCSV(e.target.result);
-                input.value = '';
+                const text = e.target.result;
+                processCSV(text);
+                input.value = ''; // 清空，允許重複上傳
             };
-            reader.readAsText(file);
+
+            // 重要：強制使用 Big5 編碼讀取，解決 Excel CSV 中文亂碼問題
+            reader.readAsText(file, 'Big5');
         }
 
         function processCSV(text) {
             const lines = text.split(/\r\n|\n/);
             const newStore = {};
             let hasValidData = false;
+            let importCount = 0;
 
+            // 從第 1 行開始 (跳過標題)
             for (let i = 1; i < lines.length; i++) {
                 const line = lines[i].trim();
                 if (!line) continue;
+                
+                // 處理 CSV 可能的逗號 (這裡假設簡單分割，如果內容有逗號會錯位，但一般 Excel 匯出無引號可直接用)
                 const cols = line.split(',');
+                
+                // 檢查欄位數量是否足夠 (至少要有日期、金額、客戶)
                 if (cols.length < 7) continue;
 
-                // 根據 CSV 格式: 
+                // 根據 CSV 結構: 
                 // Index 0: 日期 (2026-01-05)
-                // Index 5: 未稅金額
+                // Index 5: 未稅本位幣
                 // Index 6: 客戶簡稱
                 const dateStr = cols[0].trim(); 
                 const priceStr = cols[5].trim();
                 const customerName = cols[6].trim();
 
+                // 解析日期
                 let month = 0;
                 if (dateStr.includes('-')) {
                     const parts = dateStr.split('-');
@@ -420,27 +437,33 @@
 
                 if (month < 1 || month > 12) continue;
 
+                // 解析金額
                 const price = parseFloat(priceStr) || 0;
+                
+                // 解析品牌
                 let brand = '單店'; 
                 if (customerName.includes('國產')) brand = '國產';
                 else if (customerName.includes('台泥')) brand = '台泥';
                 else if (customerName.includes('亞東')) brand = '亞東';
                 
+                // 初始化月份資料結構
                 if (!newStore[month]) {
                     newStore[month] = { '國產': 0, '台泥': 0, '單店': 0, '亞東': 0 };
                 }
+
                 newStore[month][brand] += price;
                 hasValidData = true;
+                importCount++;
             }
 
             if (hasValidData) {
                 store = newStore;
                 updateDashboard();
-                showToast("✅ CSV 匯入成功！數據已更新", "success");
-                setStatus("已匯入 CSV", "bg-amber-400 text-slate-800");
-                document.getElementById('dataSourceType').innerText = "Excel/CSV 匯入";
+                showToast(`✅ 匯入成功！共處理 ${importCount} 筆資料`, "success");
+                setStatus("已匯入 CSV (Big5)", "bg-amber-400 text-slate-800");
+                document.getElementById('dataSourceType').innerText = "Excel/CSV 匯入 (Big5)";
             } else {
-                showToast("❌ 匯入失敗或無有效數據，請檢查 CSV 格式", "error");
+                showToast("❌ 匯入失敗：未找到有效資料，請確認 CSV 格式", "error");
             }
         }
 
