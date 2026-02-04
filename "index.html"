@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>115 年度備品銷售競賽看板 (含匯入功能)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* 強制設定全網頁使用新細明體 */
+        body { 
+            font-family: "PMingLiU", "新細明體", "MingLiU", serif; 
+            background-color: #f1f5f9; /* Slate-100 */
+        }
+        
+        input, select, button, textarea {
+            font-family: "PMingLiU", "新細明體", "MingLiU", serif !important;
+        }
+
+        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+
+        /* 競賽風格特效 */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .glass-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        /* 動態進度條斜紋動畫 */
+        .progress-striped {
+            background-image: linear-gradient(45deg, rgba(255,255,255,.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.15) 50%, rgba(255,255,255,.15) 75%, transparent 75%, transparent);
+            background-size: 1rem 1rem;
+            animation: progress-bar-stripes 1s linear infinite;
+        }
+        @keyframes progress-bar-stripes {
+            from { background-position: 1rem 0; }
+            to { background-position: 0 0; }
+        }
+
+        /* 排名徽章樣式 */
+        .rank-badge {
+            position: absolute;
+            top: -15px;
+            right: -10px;
+            width: 45px;
+            height: 45px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-size: 1.6rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            z-index: 10;
+            background: white;
+            border: 3px solid #e2e8f0;
+        }
+        .rank-1 { background: #fbbf24; border-color: #fff; color: #fff; animation: bounce 2s infinite; box-shadow: 0 0 15px rgba(251, 191, 36, 0.6); } /* 金 */
+        .rank-2 { background: #94a3b8; border-color: #fff; color: #fff; box-shadow: 0 0 10px rgba(148, 163, 184, 0.5); } /* 銀 */
+        .rank-3 { background: #b45309; border-color: #fff; color: #fff; box-shadow: 0 0 10px rgba(180, 83, 9, 0.5); } /* 銅 */
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(-5%); }
+            50% { transform: translateY(5%); }
+        }
+
+        .upload-area {
+            border: 2px dashed #cbd5e1;
+            transition: all 0.3s ease;
+        }
+        .upload-area:hover {
+            border-color: #6366f1;
+            background-color: #eef2ff;
+        }
+
+        .loader {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #6366f1;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="min-h-screen pb-12 text-slate-800 bg-slate-100">
+
+    <!-- 頂部裝飾條 -->
+    <div class="h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-full fixed top-0 z-50"></div>
+
+    <div class="max-w-7xl mx-auto px-4 py-8 mt-4">
+        <!-- Header -->
+        <div class="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
+            <div>
+                <h1 class="text-4xl font-extrabold text-slate-900 tracking-tight">
+                    <span class="text-indigo-600">115 年度</span> 備品銷售競賽看板
+                </h1>
+                <p class="text-slate-500 font-bold mt-2 text-lg">全年度銷售總目標：<span class="text-slate-800 text-xl">NT$ 1,000 萬</span></p>
+            </div>
+            <div class="flex items-center gap-4">
+                <!-- 狀態指示燈 -->
+                <div id="syncStatus" class="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-xs font-bold text-slate-400 shadow-sm">
+                    <span class="w-2.5 h-2.5 rounded-full bg-slate-300" id="statusDot"></span>
+                    <span id="statusText">尚未同步</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 功能按鈕區 -->
+        <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-8">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                <!-- 左側：檔案匯入區 -->
+                <div class="flex items-center gap-3 w-full md:w-auto">
+                    <label for="csvFileInput" class="upload-area cursor-pointer flex items-center gap-2 px-5 py-3 rounded-xl text-slate-600 font-bold text-sm bg-slate-50 w-full md:w-auto justify-center hover:shadow-md transition-all">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span>📂 匯入 115年度訂單.csv</span>
+                        <input type="file" id="csvFileInput" accept=".csv" class="hidden" onchange="handleFileUpload(this)">
+                    </label>
+                </div>
+
+                <!-- 右側：雲端操作 -->
+                <div class="flex gap-3 w-full md:w-auto justify-end">
+                    <button onclick="syncFromCloud()" id="btnFetch" class="flex-1 md:flex-none bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-5 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-sm active:scale-95">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" /></svg>
+                        從雲端抓取
+                    </button>
+                    <button onclick="syncToCloud()" id="btnPush" class="flex-1 md:flex-none bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white px-5 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-md active:scale-95">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                        同步數據至雲端
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 總體儀表板 (Highlight) -->
+        <div class="relative bg-gradient-to-br from-indigo-900 to-slate-800 rounded-3xl p-8 text-white shadow-2xl overflow-hidden mb-10">
+            <!-- 裝飾背景 -->
+            <div class="absolute top-0 right-0 -mt-10 -mr-10 w-64 h-64 bg-white opacity-5 rounded-full blur-3xl"></div>
+            <div class="absolute bottom-0 left-0 -mb-10 -ml-10 w-40 h-40 bg-pink-500 opacity-10 rounded-full blur-2xl"></div>
+            
+            <div class="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-8 text-center md:text-left">
+                <div class="flex flex-col justify-center">
+                    <div class="text-indigo-200 text-sm font-bold uppercase tracking-widest mb-2">年度總達成率</div>
+                    <div class="text-6xl font-extrabold tracking-tight text-white" id="headerAchievementRate">0%</div>
+                </div>
+                
+                <div class="flex flex-col justify-center md:border-l md:border-r border-white/10 md:px-8">
+                    <div class="flex justify-between items-end mb-2">
+                        <span class="text-indigo-200 text-sm font-bold">已達成業績</span>
+                    </div>
+                    <div class="text-3xl font-bold text-white mb-4" id="totalSalesText">NT$ 0</div>
+                    
+                    <div class="w-full bg-slate-700/50 rounded-full h-3 mb-1">
+                        <div id="progressBar" class="bg-gradient-to-r from-cyan-400 to-blue-500 h-3 rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(56,189,248,0.5)]" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col justify-center items-center md:items-end">
+                    <div class="text-indigo-200 text-sm font-bold uppercase tracking-widest mb-2">距離年度目標尚缺</div>
+                    <div class="text-4xl font-bold text-rose-400" id="remainingTargetText">NT$ 10,000,000</div>
+                    <div class="mt-2 text-xs bg-white/10 px-3 py-1 rounded-full text-indigo-100">加油！再接再厲</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Brand Cards (Competition Style) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <!-- 國產 -->
+            <div class="glass-card relative p-6 rounded-2xl bg-white border-t-4 border-blue-500" id="card-國產">
+                <div id="rank-badge-國產"></div> <!-- 排名徽章掛載點 -->
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <span class="text-2xl font-bold text-slate-800">國產</span>
+                        <div class="text-xs text-slate-400 font-bold mt-1">目標: $450萬</div>
+                    </div>
+                    <span id="rate-國產" class="text-3xl font-extrabold text-blue-600">0%</span>
+                </div>
+                
+                <div class="h-3 bg-slate-100 rounded-full overflow-hidden mb-4 border border-slate-200">
+                    <div id="bar-國產" class="h-full bg-blue-500 progress-striped transition-all duration-700" style="width: 0%"></div>
+                </div>
+                
+                <div class="bg-red-50 rounded-lg p-3 border border-red-100 text-center">
+                    <div class="text-xs font-bold text-red-400 uppercase mb-1">尚缺金額</div>
+                    <div class="text-lg font-bold text-red-600" id="remain-國產">NT$ 4,500,000</div>
+                </div>
+            </div>
+            
+            <!-- 台泥 -->
+            <div class="glass-card relative p-6 rounded-2xl bg-white border-t-4 border-green-500" id="card-台泥">
+                <div id="rank-badge-台泥"></div>
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <span class="text-2xl font-bold text-slate-800">台泥</span>
+                        <div class="text-xs text-slate-400 font-bold mt-1">目標: $250萬</div>
+                    </div>
+                    <span id="rate-台泥" class="text-3xl font-extrabold text-green-600">0%</span>
+                </div>
+                
+                <div class="h-3 bg-slate-100 rounded-full overflow-hidden mb-4 border border-slate-200">
+                    <div id="bar-台泥" class="h-full bg-green-500 progress-striped transition-all duration-700" style="width: 0%"></div>
+                </div>
+                
+                <div class="bg-red-50 rounded-lg p-3 border border-red-100 text-center">
+                    <div class="text-xs font-bold text-red-400 uppercase mb-1">尚缺金額</div>
+                    <div class="text-lg font-bold text-red-600" id="remain-台泥">NT$ 2,500,000</div>
+                </div>
+            </div>
+
+            <!-- 單店 -->
+            <div class="glass-card relative p-6 rounded-2xl bg-white border-t-4 border-amber-500" id="card-單店">
+                <div id="rank-badge-單店"></div>
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <span class="text-2xl font-bold text-slate-800">單店</span>
+                        <div class="text-xs text-slate-400 font-bold mt-1">目標: $200萬</div>
+                    </div>
+                    <span id="rate-單店" class="text-3xl font-extrabold text-amber-600">0%</span>
+                </div>
+                
+                <div class="h-3 bg-slate-100 rounded-full overflow-hidden mb-4 border border-slate-200">
+                    <div id="bar-單店" class="h-full bg-amber-500 progress-striped transition-all duration-700" style="width: 0%"></div>
+                </div>
+                
+                <div class="bg-red-50 rounded-lg p-3 border border-red-100 text-center">
+                    <div class="text-xs font-bold text-red-400 uppercase mb-1">尚缺金額</div>
+                    <div class="text-lg font-bold text-red-600" id="remain-單店">NT$ 2,000,000</div>
+                </div>
+            </div>
+
+            <!-- 亞東 -->
+            <div class="glass-card relative p-6 rounded-2xl bg-white border-t-4 border-rose-500" id="card-亞東">
+                <div id="rank-badge-亞東"></div>
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <span class="text-2xl font-bold text-slate-800">亞東</span>
+                        <div class="text-xs text-slate-400 font-bold mt-1">目標: $100萬</div>
+                    </div>
+                    <span id="rate-亞東" class="text-3xl font-extrabold text-rose-600">0%</span>
+                </div>
+                
+                <div class="h-3 bg-slate-100 rounded-full overflow-hidden mb-4 border border-slate-200">
+                    <div id="bar-亞東" class="h-full bg-rose-500 progress-striped transition-all duration-700" style="width: 0%"></div>
+                </div>
+                
+                <div class="bg-red-50 rounded-lg p-3 border border-red-100 text-center">
+                    <div class="text-xs font-bold text-red-400 uppercase mb-1">尚缺金額</div>
+                    <div class="text-lg font-bold text-red-600" id="remain-亞東">NT$ 1,000,000</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chart Section -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-8">
+            <h2 class="text-lg font-bold mb-6 text-slate-700 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" /></svg>
+                115 年度備品月度銷售趨勢
+            </h2>
+            <div class="h-80">
+                <canvas id="salesChart"></canvas>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <!-- Form -->
+            <div class="lg:col-span-4 space-y-6">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 sticky top-8">
+                    <h2 class="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700">
+                        <span class="w-1.5 h-6 bg-indigo-500 rounded-full"></span>
+                        手動數據補登
+                    </h2>
+                    
+                    <div class="space-y-4">
+                        <div class="flex gap-4">
+                            <div class="flex-1">
+                                <label class="block text-sm font-bold text-slate-600 mb-2">月份</label>
+                                <select id="monthInput" class="w-full bg-slate-50 border-slate-300 border rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none transition-all">
+                                    <script>for(let i=1; i<=12; i++) document.write(`<option value="${i}">${i}月</option>`);</script>
+                                </select>
+                            </div>
+                            <div class="flex-1">
+                                <label class="block text-sm font-bold text-slate-600 mb-2">品牌項目</label>
+                                <select id="itemInput" class="w-full bg-slate-50 border-slate-300 border rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none transition-all">
+                                    <option value="國產">國產</option>
+                                    <option value="台泥">台泥</option>
+                                    <option value="單店">單店</option>
+                                    <option value="亞東">亞東</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-bold text-indigo-600 mb-2">當月備品銷售額 (NT$)</label>
+                            <input type="number" id="amountInput" placeholder="請輸入金額" class="w-full bg-indigo-50/30 border-indigo-200 border rounded-xl p-3 focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold text-lg">
+                        </div>
+
+                        <button onclick="updateData()" class="w-full bg-gradient-to-r from-indigo-600 to-indigo-800 hover:from-indigo-700 hover:to-indigo-900 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all transform active:scale-[0.98]">
+                            提交並更新統計
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div class="lg:col-span-8">
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-6 border-b border-slate-100 flex justify-between items-center">
+                        <h2 class="text-lg font-bold text-slate-700">115 年度銷售明細表</h2>
+                        <span class="text-xs text-slate-400 font-bold bg-slate-100 px-2 py-1 rounded">來源: <span id="dataSourceType">本地/雲端</span></span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50">
+                                    <th class="px-5 py-4 text-sm font-bold text-slate-600 border-b">月份</th>
+                                    <th class="px-5 py-4 text-sm font-bold text-slate-600 border-b">各項目金額 (NT$)</th>
+                                    <th class="px-5 py-4 text-sm font-bold text-indigo-600 border-b text-right">月總額</th>
+                                    <th class="px-5 py-4 text-sm font-bold text-slate-600 border-b text-right">年度累計進度</th>
+                                </tr>
+                            </thead>
+                            <tbody id="salesTableBody" class="divide-y divide-slate-100">
+                                <!-- JS Injected -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="emptyState" class="px-6 py-12 text-center text-slate-400 hidden">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-2 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        目前尚無銷售數據資料，請匯入 CSV 或手動輸入
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 重要：請務必在此處填入您的 Google Apps Script 部署網址
+        // ==========================================
+        const CLOUD_API_URL = "https://script.google.com/macros/s/AKfycbzslQThOfrVa1aTnOIH97zTe_qze92Pb_Bz55PVVDhfUlTNaTwYUREGxJuXDTJWraySxw/exec"; 
+
+        const ANNUAL_GOALS = {
+            '國產': 4500000,
+            '台泥': 2500000,
+            '單店': 2000000,
+            '亞東': 1000000,
+            'TOTAL': 10000000
+        };
+
+        const itemsList = ['國產', '台泥', '單店', '亞東'];
+        let store = {};
+        let chart;
+
+        window.onload = function() {
+            initChart();
+            updateDashboard();
+            
+            // 如果網址已經填寫，則自動嘗試同步
+            if (CLOUD_API_URL && CLOUD_API_URL.indexOf("/exec") !== -1) {
+                syncFromCloud();
+            } else {
+                setStatus("尚未連接 Google 試算表", "bg-rose-500 text-white");
+            }
+        };
+
+        // --- CSV 處理核心邏輯 ---
+        function handleFileUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                processCSV(e.target.result);
+                input.value = '';
+            };
+            reader.readAsText(file);
+        }
+
+        function processCSV(text) {
+            const lines = text.split(/\r\n|\n/);
+            const newStore = {};
+            let hasValidData = false;
+
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                const cols = line.split(',');
+                if (cols.length < 7) continue;
+
+                // 根據 CSV 格式: 
+                // Index 0: 日期 (2026-01-05)
+                // Index 5: 未稅金額
+                // Index 6: 客戶簡稱
+                const dateStr = cols[0].trim(); 
+                const priceStr = cols[5].trim();
+                const customerName = cols[6].trim();
+
+                let month = 0;
+                if (dateStr.includes('-')) {
+                    const parts = dateStr.split('-');
+                    if (parts.length >= 2) month = parseInt(parts[1], 10);
+                } else if (dateStr.includes('/')) {
+                    const parts = dateStr.split('/');
+                    if (parts.length >= 2) month = parseInt(parts[1], 10);
+                }
+
+                if (month < 1 || month > 12) continue;
+
+                const price = parseFloat(priceStr) || 0;
+                let brand = '單店'; 
+                if (customerName.includes('國產')) brand = '國產';
+                else if (customerName.includes('台泥')) brand = '台泥';
+                else if (customerName.includes('亞東')) brand = '亞東';
+                
+                if (!newStore[month]) {
+                    newStore[month] = { '國產': 0, '台泥': 0, '單店': 0, '亞東': 0 };
+                }
+                newStore[month][brand] += price;
+                hasValidData = true;
+            }
+
+            if (hasValidData) {
+                store = newStore;
+                updateDashboard();
+                showToast("✅ CSV 匯入成功！數據已更新", "success");
+                setStatus("已匯入 CSV", "bg-amber-400 text-slate-800");
+                document.getElementById('dataSourceType').innerText = "Excel/CSV 匯入";
+            } else {
+                showToast("❌ 匯入失敗或無有效數據，請檢查 CSV 格式", "error");
+            }
+        }
+
+        // --- API 與 UI 邏輯 ---
+
+        async function fetchWithRetry(url, options = {}, retries = 3, backoff = 1000) {
+            try {
+                const response = await fetch(url, options);
+                if (!response.ok) throw new Error('HTTP ' + response.status);
+                return response;
+            } catch (err) {
+                if (retries > 0) {
+                    await new Promise(res => setTimeout(res, backoff));
+                    return fetchWithRetry(url, options, retries - 1, backoff * 2);
+                }
+                throw err;
+            }
+        }
+
+        function setStatus(text, colorClass) {
+            const dot = document.getElementById('statusDot');
+            const txt = document.getElementById('statusText');
+            // 清除之前的顏色類別
+            document.getElementById('syncStatus').className = `flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-xs font-bold shadow-sm ${colorClass.includes('text') ? '' : 'text-slate-400'}`;
+            dot.className = `w-2.5 h-2.5 rounded-full ${colorClass.split(' ')[0]}`;
+            txt.innerText = text;
+        }
+
+        async function syncFromCloud() {
+            if (!CLOUD_API_URL || CLOUD_API_URL.indexOf("...") !== -1) {
+                return showToast("尚未設定 Google API 網址", "error");
+            }
+            const btn = document.getElementById('btnFetch');
+            const originalContent = btn.innerHTML;
+            btn.innerHTML = `<span class="loader"></span>讀取中...`;
+            btn.disabled = true;
+            setStatus("正在從雲端抓取...", "bg-amber-400 animate-pulse");
+
+            try {
+                const res = await fetchWithRetry(CLOUD_API_URL);
+                const data = await res.json();
+                if (data && typeof data === 'object') {
+                    store = data;
+                    updateDashboard();
+                    showToast("✅ 雲端數據抓取成功！");
+                    setStatus("已同步 (雲端)", "bg-emerald-500");
+                    document.getElementById('dataSourceType').innerText = "雲端同步";
+                }
+            } catch (e) {
+                console.error(e);
+                showToast("❌ 無法連接雲端", "error");
+                setStatus("連接失敗", "bg-rose-500");
+            } finally {
+                btn.innerHTML = originalContent;
+                btn.disabled = false;
+            }
+        }
+
+        async function syncToCloud() {
+            if (!CLOUD_API_URL || CLOUD_API_URL.indexOf("...") !== -1) {
+                return showToast("請先設定 API 網址", "error");
+            }
+            const btn = document.getElementById('btnPush');
+            const originalContent = btn.innerHTML;
+            btn.innerHTML = `<span class="loader"></span>同步中...`;
+            btn.disabled = true;
+            setStatus("正在上傳...", "bg-amber-400 animate-pulse");
+
+            try {
+                await fetch(CLOUD_API_URL, {
+                    method: 'POST',
+                    mode: 'no-cors', 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(store)
+                });
+                showToast("🚀 資料同步命令已送出");
+                setStatus("已同步 (剛才)", "bg-emerald-500");
+                document.getElementById('dataSourceType').innerText = "已上傳雲端";
+            } catch (e) {
+                showToast("❌ 同步失敗", "error");
+                setStatus("同步失敗", "bg-rose-500");
+            } finally {
+                btn.innerHTML = originalContent;
+                btn.disabled = false;
+            }
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('salesChart').getContext('2d');
+            // 漸層背景
+            let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, 'rgba(99, 102, 241, 0.5)');
+            gradient.addColorStop(1, 'rgba(99, 102, 241, 0.0)');
+
+            chart = new Chart(ctx, {
+                type: 'line', // 改為折線圖更有趨勢感，或者保持 Bar 但加強美觀
+                data: {
+                    labels: Array.from({length: 12}, (_, i) => `${i + 1}月`),
+                    datasets: [{
+                        label: '月銷售總額',
+                        data: Array(12).fill(0),
+                        backgroundColor: gradient,
+                        borderColor: '#6366f1',
+                        borderWidth: 3,
+                        pointBackgroundColor: '#fff',
+                        pointBorderColor: '#6366f1',
+                        pointHoverBackgroundColor: '#6366f1',
+                        pointHoverBorderColor: '#fff',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            titleFont: { family: 'PMingLiU', size: 14 },
+                            bodyFont: { family: 'PMingLiU', size: 14 },
+                            padding: 12,
+                            callbacks: {
+                                label: (ctx) => ` 銷售額: NT$ ${ctx.parsed.y.toLocaleString()}`
+                            }
+                        }
+                    },
+                    scales: {
+                        y: { 
+                            beginAtZero: true, 
+                            grid: { color: '#f1f5f9' },
+                            ticks: { 
+                                font: { family: 'PMingLiU' },
+                                callback: (val) => val.toLocaleString() 
+                            }
+                        },
+                        x: { 
+                            grid: { display: false },
+                            ticks: { font: { family: 'PMingLiU' } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateDashboard() {
+            const tableBody = document.getElementById('salesTableBody');
+            const emptyState = document.getElementById('emptyState');
+            
+            let totalActualAllMonths = 0;
+            let runningYearlyTotal = 0;
+            let chartData = Array(12).fill(0);
+            let brandYearlyTotals = { '國產': 0, '台泥': 0, '單店': 0, '亞東': 0 };
+
+            tableBody.innerHTML = '';
+            
+            const monthsPresent = Object.keys(store).sort((a,b) => a-b);
+
+            monthsPresent.forEach(m => {
+                const data = store[m];
+                let mActualTotal = 0;
+                let detailRows = '';
+                
+                itemsList.forEach(it => {
+                    const actual = data[it] || 0;
+                    mActualTotal += actual;
+                    brandYearlyTotals[it] += actual;
+                    detailRows += `
+                        <div class="flex justify-between items-center gap-4 py-1 border-b border-slate-50 last:border-0">
+                            <span class="text-slate-500 font-bold text-[13px] w-12">${it}</span>
+                            <span class="text-slate-800 font-bold text-[13px]">NT$ ${actual.toLocaleString()}</span>
+                        </div>
+                    `;
+                });
+
+                totalActualAllMonths += mActualTotal;
+                runningYearlyTotal += mActualTotal;
+                chartData[m-1] = mActualTotal;
+
+                tableBody.innerHTML += `
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="px-5 py-4 font-bold text-slate-800 border-b">${m}月</td>
+                        <td class="px-5 py-4 min-w-[200px] border-b">${detailRows}</td>
+                        <td class="px-5 py-4 text-right border-b"><div class="font-bold text-indigo-600 text-base">NT$ ${mActualTotal.toLocaleString()}</div></td>
+                        <td class="px-5 py-4 text-right border-b">
+                            <div class="text-[11px] text-slate-400 font-bold uppercase">累計至今</div>
+                            <div class="font-bold text-slate-700">NT$ ${runningYearlyTotal.toLocaleString()}</div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            if (monthsPresent.length === 0) emptyState.classList.remove('hidden');
+            else emptyState.classList.add('hidden');
+
+            // --- 競賽排名邏輯 ---
+            let ranks = [];
+            itemsList.forEach(it => {
+                const rate = (brandYearlyTotals[it] / ANNUAL_GOALS[it] * 100);
+                const remaining = Math.max(0, ANNUAL_GOALS[it] - brandYearlyTotals[it]);
+                
+                // 更新各品牌數據
+                document.getElementById(`rate-${it}`).innerText = `${rate.toFixed(1)}%`;
+                document.getElementById(`bar-${it}`).style.width = `${Math.min(rate, 100)}%`;
+                document.getElementById(`remain-${it}`).innerText = `NT$ ${remaining.toLocaleString()}`;
+
+                // 清除舊徽章
+                const badgeContainer = document.getElementById(`rank-badge-${it}`);
+                badgeContainer.innerHTML = '';
+                badgeContainer.className = '';
+
+                if (rate > 0) {
+                    ranks.push({ name: it, rate: rate });
+                }
+            });
+
+            // 排序並頒發獎章
+            ranks.sort((a, b) => b.rate - a.rate);
+            ranks.forEach((r, index) => {
+                const badgeContainer = document.getElementById(`rank-badge-${r.name}`);
+                if (index === 0) {
+                    badgeContainer.innerHTML = '👑'; // 冠軍
+                    badgeContainer.className = 'rank-badge rank-1';
+                } else if (index === 1) {
+                    badgeContainer.innerHTML = '🥈'; // 亞軍
+                    badgeContainer.className = 'rank-badge rank-2';
+                } else if (index === 2) {
+                    badgeContainer.innerHTML = '🥉'; // 季軍
+                    badgeContainer.className = 'rank-badge rank-3';
+                }
+            });
+
+            // 更新總表
+            const overallRate = (totalActualAllMonths / ANNUAL_GOALS['TOTAL'] * 100).toFixed(1);
+            const remainingTotal = Math.max(0, ANNUAL_GOALS['TOTAL'] - totalActualAllMonths);
+
+            document.getElementById('headerAchievementRate').innerText = `${overallRate}%`;
+            document.getElementById('totalSalesText').innerText = `NT$ ${totalActualAllMonths.toLocaleString()}`;
+            document.getElementById('remainingTargetText').innerText = `NT$ ${remainingTotal.toLocaleString()}`;
+            document.getElementById('progressBar').style.width = `${Math.min(overallRate, 100)}%`;
+
+            chart.data.datasets[0].data = chartData;
+            chart.update();
+        }
+
+        function updateData() {
+            const month = parseInt(document.getElementById('monthInput').value);
+            const item = document.getElementById('itemInput').value;
+            const actualVal = parseFloat(document.getElementById('amountInput').value) || 0;
+            if (!store[month]) {
+                store[month] = {};
+                itemsList.forEach(name => store[month][name] = 0);
+            }
+            store[month][item] = actualVal;
+            updateDashboard();
+            setStatus("本地已變動", "bg-amber-400 text-slate-800");
+            showToast(`${month}月「${item}」已更新`, "success");
+            document.getElementById('dataSourceType').innerText = "手動輸入";
+        }
+
+        function showToast(msg, type = "info") {
+            const toast = document.createElement('div');
+            const bgColor = type === "error" ? "bg-red-600" : (type === "success" ? "bg-emerald-600" : "bg-slate-800");
+            toast.className = `fixed bottom-8 right-8 ${bgColor} text-white px-6 py-4 rounded-xl shadow-2xl z-50 text-sm font-bold transition-all duration-300 transform translate-y-0 opacity-100`;
+            toast.innerText = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translate-y-4';
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+    </script>
+</body>
+</html>
