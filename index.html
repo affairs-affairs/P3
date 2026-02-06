@@ -307,8 +307,8 @@
         // ==========================================
         // 設定區
         // ==========================================
-        const USE_MOCK_DATA = true; 
-        const REAL_API_URL = "https://script.google.com/macros/s/AKfycby5fVNTothLe98WxZ9Kw_W9mP4BshgFOGXFzXjFxCBnZ7JYmMrOJpqW-_5KhSqb7Ya_/exec"; 
+        const USE_MOCK_DATA = true; // 請確保發布後此處改為 false
+        const REAL_API_URL = "https://script.google.com/macros/s/你的ID/exec"; 
 
         const TARGETS = {
             'total': 10000000,
@@ -329,6 +329,27 @@
         let pieChartInstance = null;
         let barChartInstance = null;
         const currentYear = new Date().getFullYear();
+
+        // ----------------------------------------
+        // 新增：數據解析輔助函數 (解決資料異常的關鍵)
+        // ----------------------------------------
+        function parseAmount(value) {
+            if (typeof value === 'number') return value;
+            if (typeof value === 'string') {
+                // 移除千分位逗號和非數字字符 (保留小數點)
+                const clean = value.replace(/,/g, '').trim();
+                return parseFloat(clean) || 0;
+            }
+            return 0;
+        }
+
+        function getYearFromDate(dateVal) {
+            if (!dateVal) return null;
+            const d = new Date(dateVal);
+            if (isNaN(d.getTime())) return null; 
+            return d.getFullYear().toString();
+        }
+        // ----------------------------------------
 
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -391,6 +412,7 @@
                 const opt = document.createElement('option');
                 opt.value = y;
                 opt.text = `${y} 年`;
+                // 預設選中 2026 或當年
                 if(y === currentYear || (currentYear > maxYear && y === maxYear)) opt.selected = true;
                 yearSelector.appendChild(opt);
             });
@@ -437,12 +459,13 @@
             const clientFilter = document.getElementById('clientFilter').value;
             const checkedYears = Array.from(document.querySelectorAll('.year-checkbox:checked'))
                                       .map(cb => cb.value)
-                                      .sort(); // 確保年份排序
+                                      .sort(); 
             
             updateChartsData(checkedYears, clientFilter);
         }
 
         function getCategory(clientName) {
+            if (!clientName) return "單店";
             if (clientName.includes("國產")) return "國產";
             if (clientName.includes("台泥")) return "台泥";
             if (clientName.includes("亞東")) return "亞東";
@@ -455,12 +478,17 @@
             let totalRevenue = 0;
 
             rawData.forEach(row => {
-                const rowDate = new Date(row["日期"]);
-                if (rowDate.getFullYear().toString() === year) {
-                    const amount = parseInt(row["總金額"]) || 0;
+                const rowYearStr = getYearFromDate(row["日期"]);
+                
+                if (rowYearStr === year) {
+                    // 使用新的 parseAmount 確保數字正確
+                    const amount = parseAmount(row["總金額"]);
                     const category = getCategory(row["客戶名單"] || "");
-                    stats[category] += amount;
-                    totalRevenue += amount;
+                    
+                    if (stats[category] !== undefined) {
+                        stats[category] += amount;
+                        totalRevenue += amount;
+                    }
                 }
             });
 
@@ -491,7 +519,7 @@
                 const rateText = document.getElementById(`rate-${key}`);
                 if(parseFloat(rate) >= 100) rateText.className = "text-emerald-600";
                 else {
-                     rateText.className = ""; // Reset
+                     rateText.className = ""; 
                      if(key==='國產') rateText.classList.add('text-blue-600');
                      if(key==='台泥') rateText.classList.add('text-emerald-600');
                      if(key==='亞東') rateText.classList.add('text-rose-600');
@@ -501,14 +529,10 @@
         }
 
         function updateChartsData(years, clientFilter) {
-            // 數據結構: { 年份: { 分類/客戶名: 金額 } }
             let yearlyData = {};
             years.forEach(y => yearlyData[y] = {});
 
-            // 用於 Pie Chart 的總計
             let pieDataMap = {}; 
-
-            // 用於收集所有的堆疊 Key (例如所有分店名)
             let allSegments = new Set();
 
             document.getElementById('barChartTitle').innerText = 
@@ -517,11 +541,11 @@
                 clientFilter === 'ALL' ? `各大類別合併佔比` : `${clientFilter}系列合併佔比`;
 
             rawData.forEach(row => {
-                const rowDate = new Date(row["日期"]);
-                const rowYearStr = rowDate.getFullYear().toString();
+                const rowYearStr = getYearFromDate(row["日期"]);
                 
                 if (years.includes(rowYearStr)) {
-                    const amount = parseInt(row["總金額"]) || 0;
+                    // 使用新的 parseAmount 確保數字正確
+                    const amount = parseAmount(row["總金額"]);
                     const clientName = row["客戶名單"] || "";
                     const category = getCategory(clientName);
                     
@@ -546,45 +570,29 @@
             return 'NT$ ' + num.toLocaleString();
         }
 
-        // 色彩庫：提供高對比度的顏色組合，用於區分同一系列下的不同分店
         const DISTINCT_PALETTE = [
-            '#ea580c', // Orange (深橘)
-            '#0ea5e9', // Sky (亮藍)
-            '#84cc16', // Lime (萊姆綠)
-            '#d946ef', // Fuchsia (桃紅)
-            '#eab308', // Yellow (黃)
-            '#6366f1', // Indigo (靛藍)
-            '#14b8a6', // Teal (青綠)
-            '#f43f5e', // Rose (玫瑰紅)
-            '#8b5cf6', // Violet (紫)
-            '#64748b', // Slate (灰藍)
-            '#10b981', // Emerald (翠綠)
-            '#3b82f6', // Blue (藍)
+            '#ea580c', '#0ea5e9', '#84cc16', '#d946ef', '#eab308', 
+            '#6366f1', '#14b8a6', '#f43f5e', '#8b5cf6', '#64748b', 
+            '#10b981', '#3b82f6'
         ];
 
         function getColor(index, total, clientFilter) {
-            // 生成顏色邏輯
             if (clientFilter === 'ALL') {
-                 // 固定順序的顏色，對應 國產, 台泥, 亞東, 單店
-                 // 這裡傳進來的 index 其實是 segment 名稱 (例如 "國產")
                  const key = index; 
-                 if (key === '國產') return '#3b82f6'; // Blue
-                 if (key === '台泥') return '#10b981'; // Emerald
-                 if (key === '亞東') return '#f43f5e'; // Rose
-                 if (key === '單店') return '#f59e0b'; // Amber
+                 if (key === '國產') return '#3b82f6';
+                 if (key === '台泥') return '#10b981';
+                 if (key === '亞東') return '#f43f5e';
+                 if (key === '單店') return '#f59e0b';
                  return '#cbd5e1';
             } else {
-                // 針對特定系列下的分店，使用高對比色票
                 return DISTINCT_PALETTE[index % DISTINCT_PALETTE.length];
             }
         }
 
         function drawCharts(years, yearlyData, segments, pieDataMap, clientFilter) {
-            // --- 1. 堆疊長條圖 (Stacked Bar) ---
             const ctxBar = document.getElementById('yearlyStackChart').getContext('2d');
             if (barChartInstance) barChartInstance.destroy();
 
-            // 準備 Datasets
             const datasets = segments.map((segment, idx) => {
                 const data = years.map(year => yearlyData[year][segment] || 0);
                 return {
@@ -592,7 +600,7 @@
                     data: data,
                     backgroundColor: (clientFilter === 'ALL') ? getColor(segment, 0, clientFilter) : getColor(idx, segments.length, clientFilter),
                     borderRadius: 2,
-                    borderSkipped: false, // 讓堆疊看起來更連續
+                    borderSkipped: false, 
                 };
             });
             
@@ -616,12 +624,10 @@
                                 label: (ctx) => ` ${ctx.dataset.label}: NT$ ${ctx.parsed.y.toLocaleString()}`
                             }
                         },
-                        // 設定數值標籤
                         datalabels: {
-                            color: '#fbbf24', // 黃色字體
+                            color: '#fbbf24',
                             font: { weight: 'bold', size: 11, family: "'Noto Sans TC'" },
                             formatter: (value) => {
-                                // 如果數值太小就不顯示，避免擠在一起
                                 return value > 50000 ? Math.round(value/1000) + 'k' : ''; 
                             },
                             anchor: 'center',
@@ -631,12 +637,9 @@
                 }
             });
 
-
-            // --- 2. 圓餅圖 ---
             const ctxPie = document.getElementById('pieChart').getContext('2d');
             if (pieChartInstance) pieChartInstance.destroy();
 
-            // 圓餅圖顏色
             let pieColors = segments.map((seg, i) => (clientFilter === 'ALL') ? getColor(seg, 0, clientFilter) : getColor(i, segments.length, clientFilter));
 
             pieChartInstance = new Chart(ctxPie, {
@@ -654,7 +657,7 @@
                     maintainAspectRatio: false,
                     plugins: {
                         legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20, font: {family: "'Noto Sans TC'"} } },
-                        datalabels: { display: false } // 圓餅圖暫不顯示內部數字，保持乾淨
+                        datalabels: { display: false }
                     },
                     cutout: '65%'
                 }
