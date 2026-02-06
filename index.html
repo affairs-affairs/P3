@@ -42,9 +42,37 @@
             color: white;
             border-color: #4f46e5;
         }
+        /* 讀取中遮罩 */
+        #loading-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            backdrop-filter: blur(2px);
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4f46e5;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="text-slate-800">
+
+    <!-- 讀取遮罩 -->
+    <div id="loading-overlay">
+        <div class="text-center">
+            <div class="spinner mx-auto mb-4"></div>
+            <p class="text-slate-600 font-bold">資料同步中...</p>
+        </div>
+    </div>
 
     <div class="min-h-screen flex flex-col">
         <!-- 頂部導航列 -->
@@ -307,8 +335,15 @@
         // ==========================================
         // 設定區
         // ==========================================
-        const USE_MOCK_DATA = true; // 請確保發布後此處改為 false
-        const REAL_API_URL = "https://docs.google.com/spreadsheets/d/1cwDgHz8RESKxla0FqTVYQhM-ZnjFxIKbuI3jB9f0xQI/edit?gid=0#gid=0"; 
+        // 重要：已將模擬數據關閉，現在會嚴格讀取 REAL_API_URL 的數據
+        const USE_MOCK_DATA = false; 
+        
+        // ==========================================
+        // ⇩⇩⇩ 請在此填入您的 Google Apps Script 部署網址 ⇩⇩⇩
+        // ==========================================
+        const REAL_API_URL = "https://script.google.com/macros/s/你的ID/exec"; 
+        // ==========================================
+
 
         const TARGETS = {
             'total': 10000000,
@@ -353,10 +388,15 @@
             const firstRow = data[0];
             const keys = Object.keys(firstRow);
             
-            // 模糊搜尋正確的 Key (只要包含關鍵字就抓)
+            // 優先找完全匹配 "總金額" 的，找不到再找包含 "總金額" 的，最後才找 "金額"
+            // 這樣可以避免抓到 "預算金額" 或 "稅額"
+            let amountKey = keys.find(k => k === '總金額');
+            if (!amountKey) amountKey = keys.find(k => k.includes('總金額'));
+            if (!amountKey) amountKey = keys.find(k => k.includes('金額'));
+
             const keyMap = {
                 date: keys.find(k => k.includes('日期')) || '日期',
-                amount: keys.find(k => k.includes('金額')) || '總金額',
+                amount: amountKey || '總金額',
                 client: keys.find(k => k.includes('客戶') || k.includes('名單')) || '客戶名單'
             };
 
@@ -403,6 +443,7 @@
         }
 
         function generateMockData() {
+            // 這個函數僅在 USE_MOCK_DATA = true 時使用
             const data = [];
             const clients = [
                 {name: "國產土城", type: "國產"}, {name: "國產新竹", type: "國產"}, {name: "國產台中", type: "國產"},
@@ -431,6 +472,16 @@
         }
 
         async function init() {
+            const loadingOverlay = document.getElementById('loading-overlay');
+            
+            // 1. 檢查網址是否仍為預設值
+            if (REAL_API_URL.includes("你的ID")) {
+                loadingOverlay.style.display = 'none';
+                alert("⚠️ 請注意：您尚未設定 Google Apps Script 網址。\n請在程式碼約第 560 行填入正確的網址，否則無法抓取資料。");
+                document.getElementById('lastUpdateTime').innerText = "尚未設定資料來源";
+                return; // 停止執行，避免錯誤
+            }
+
             const yearSelector = document.getElementById('yearSelector');
             const maxYear = Math.max(currentYear, 2026);
             
@@ -464,18 +515,26 @@
                 rawData = generateMockData();
                 handleGlobalYearChange();
                 document.getElementById('lastUpdateTime').innerText = new Date().toLocaleString();
+                loadingOverlay.style.display = 'none';
             } else {
                 try {
                     const res = await fetch(REAL_API_URL);
+                    if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
+                    
                     let fetchedData = await res.json();
                     
                     // 關鍵步驟：標準化資料 (處理標題空格問題)
                     rawData = normalizeData(fetchedData);
-                    
+                    console.log("已成功載入資料，筆數:", rawData.length);
+
                     handleGlobalYearChange();
                     document.getElementById('lastUpdateTime').innerText = new Date().toLocaleString();
                 } catch (e) {
-                    alert("無法連接 Google 試算表，請檢查 API 網址。");
+                    alert("❌ 無法連接 Google 試算表。\n\n可能原因：\n1. 網址填寫錯誤。\n2. Apps Script 部署權限未設為「所有人」。\n3. 網路連線問題。");
+                    console.error(e);
+                    document.getElementById('lastUpdateTime').innerText = "資料讀取失敗";
+                } finally {
+                    loadingOverlay.style.display = 'none';
                 }
             }
         }
@@ -499,7 +558,7 @@
         }
 
         function getCategory(clientName) {
-            if (!clientName) return "單店";
+            if (!clientName || typeof clientName !== 'string') return "單店";
             if (clientName.includes("國產")) return "國產";
             if (clientName.includes("台泥")) return "台泥";
             if (clientName.includes("亞東")) return "亞東";
