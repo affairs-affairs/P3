@@ -331,16 +331,45 @@
         const currentYear = new Date().getFullYear();
 
         // ----------------------------------------
-        // 新增：數據解析輔助函數 (解決資料異常的關鍵)
+        // 核心：智能數據清洗與標準化
         // ----------------------------------------
+        
+        // 1. 強力金額解析 (解決 NT$, 逗號, 空格問題)
         function parseAmount(value) {
             if (typeof value === 'number') return value;
             if (typeof value === 'string') {
-                // 移除千分位逗號和非數字字符 (保留小數點)
-                const clean = value.replace(/,/g, '').trim();
+                // 正則表達式：只保留 0-9, 小數點, 負號
+                const clean = value.replace(/[^\d.-]/g, '');
                 return parseFloat(clean) || 0;
             }
             return 0;
+        }
+
+        // 2. 智能欄位對應 (解決標題空格問題)
+        function normalizeData(data) {
+            if (!data || data.length === 0) return [];
+            
+            // 取得第一筆資料的 Key 來做對應
+            const firstRow = data[0];
+            const keys = Object.keys(firstRow);
+            
+            // 模糊搜尋正確的 Key (只要包含關鍵字就抓)
+            const keyMap = {
+                date: keys.find(k => k.includes('日期')) || '日期',
+                amount: keys.find(k => k.includes('金額')) || '總金額',
+                client: keys.find(k => k.includes('客戶') || k.includes('名單')) || '客戶名單'
+            };
+
+            console.log("智能欄位對應結果:", keyMap); // 開發者工具可見
+
+            // 重組資料
+            return data.map(row => {
+                return {
+                    "日期": row[keyMap.date],
+                    "總金額": row[keyMap.amount],
+                    "客戶名單": row[keyMap.client]
+                };
+            });
         }
 
         function getYearFromDate(dateVal) {
@@ -431,13 +460,18 @@
             });
 
             if (USE_MOCK_DATA) {
+                // 模擬模式不需要 normalize
                 rawData = generateMockData();
                 handleGlobalYearChange();
                 document.getElementById('lastUpdateTime').innerText = new Date().toLocaleString();
             } else {
                 try {
                     const res = await fetch(REAL_API_URL);
-                    rawData = await res.json();
+                    let fetchedData = await res.json();
+                    
+                    // 關鍵步驟：標準化資料 (處理標題空格問題)
+                    rawData = normalizeData(fetchedData);
+                    
                     handleGlobalYearChange();
                     document.getElementById('lastUpdateTime').innerText = new Date().toLocaleString();
                 } catch (e) {
