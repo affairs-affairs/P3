@@ -335,8 +335,6 @@
         // ==========================================
         // 設定區
         // ==========================================
-        // 重要：已將模擬數據關閉，現在會嚴格讀取 REAL_API_URL 的數據
-        const USE_MOCK_DATA = false; 
         
         // ==========================================
         // ⇩⇩⇩ 請在此填入您的 Google Apps Script 部署網址 ⇩⇩⇩
@@ -442,35 +440,6 @@
             }
         }
 
-        function generateMockData() {
-            // 這個函數僅在 USE_MOCK_DATA = true 時使用
-            const data = [];
-            const clients = [
-                {name: "國產土城", type: "國產"}, {name: "國產新竹", type: "國產"}, {name: "國產台中", type: "國產"},
-                {name: "台泥和平", type: "台泥"}, {name: "台泥蘇澳", type: "台泥"}, {name: "台泥花蓮", type: "台泥"},
-                {name: "亞東高雄廠", type: "亞東"}, {name: "亞東仁武廠", type: "亞東"}, {name: "亞東桃園", type: "亞東"}, {name: "亞東小港", type: "亞東"},
-                {name: "偉盛徐田", type: "單店"}, {name: "小客戶A", type: "單店"}, {name: "小客戶B", type: "單店"}
-            ];
-
-            for (let y = 2018; y <= 2026; y++) {
-                for (let m = 1; m <= 12; m++) {
-                    let orders = Math.floor(Math.random() * 8) + 3; 
-                    for (let i = 0; i < orders; i++) {
-                        const client = clients[Math.floor(Math.random() * clients.length)];
-                        const amount = Math.floor(Math.random() * 50000) + 10000; 
-                        const boost = (y === 2026) ? 0.3 : (y >= 2024 ? 1.5 : 1); 
-
-                        data.push({
-                            "日期": `${y}/${m.toString().padStart(2, '0')}/${Math.floor(Math.random()*28)+1}`,
-                            "客戶名單": client.name,
-                            "總金額": Math.floor(amount * boost)
-                        });
-                    }
-                }
-            }
-            return data;
-        }
-
         async function init() {
             const loadingOverlay = document.getElementById('loading-overlay');
             
@@ -510,32 +479,25 @@
                 checkboxContainer.appendChild(label);
             });
 
-            if (USE_MOCK_DATA) {
-                // 模擬模式不需要 normalize
-                rawData = generateMockData();
+            // 強制僅使用真實資料
+            try {
+                const res = await fetch(REAL_API_URL);
+                if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
+                
+                let fetchedData = await res.json();
+                
+                // 關鍵步驟：標準化資料 (處理標題空格問題)
+                rawData = normalizeData(fetchedData);
+                console.log("已成功載入資料，筆數:", rawData.length);
+
                 handleGlobalYearChange();
                 document.getElementById('lastUpdateTime').innerText = new Date().toLocaleString();
+            } catch (e) {
+                alert("❌ 無法連接 Google 試算表。\n\n可能原因：\n1. 網址填寫錯誤。\n2. Apps Script 部署權限未設為「所有人」。\n3. 網路連線問題。");
+                console.error(e);
+                document.getElementById('lastUpdateTime').innerText = "資料讀取失敗";
+            } finally {
                 loadingOverlay.style.display = 'none';
-            } else {
-                try {
-                    const res = await fetch(REAL_API_URL);
-                    if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
-                    
-                    let fetchedData = await res.json();
-                    
-                    // 關鍵步驟：標準化資料 (處理標題空格問題)
-                    rawData = normalizeData(fetchedData);
-                    console.log("已成功載入資料，筆數:", rawData.length);
-
-                    handleGlobalYearChange();
-                    document.getElementById('lastUpdateTime').innerText = new Date().toLocaleString();
-                } catch (e) {
-                    alert("❌ 無法連接 Google 試算表。\n\n可能原因：\n1. 網址填寫錯誤。\n2. Apps Script 部署權限未設為「所有人」。\n3. 網路連線問題。");
-                    console.error(e);
-                    document.getElementById('lastUpdateTime').innerText = "資料讀取失敗";
-                } finally {
-                    loadingOverlay.style.display = 'none';
-                }
             }
         }
 
